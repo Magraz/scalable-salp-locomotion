@@ -18,7 +18,7 @@ from environments.salp_navigate.utils import (
     generate_target_points,
     generate_bending_curve,
     batch_discrete_frechet_distance,
-    generate_random_coordinate_outside_box,
+    generate_random_coordinate_within_annulus,
     rotate_points,
     calculate_moment,
     internal_angles_xy,
@@ -55,7 +55,7 @@ class SalpNavigateDomain(BaseScenario):
         self.frechet_thresh = 0.95
         self.min_n_agents = 8
 
-        self.viewer_zoom = kwargs.pop("viewer_zoom", 1.45)
+        self.viewer_zoom = kwargs.pop("viewer_zoom", 5.0)
 
         # Agents
         self.n_agents = kwargs.pop("n_agents", self.min_n_agents)
@@ -73,14 +73,18 @@ class SalpNavigateDomain(BaseScenario):
         self.training = kwargs.pop("training", True)
 
         # Environment
+        self.train_world_x_dim = self.n_agents / 4
+        self.train_world_y_dim = self.n_agents / 4
+        self.eval_world_x_dim = 32
+        self.eval_world_y_dim = 32
         if self.training:
             # Set a smaller world size for training like a fence
-            self.world_x_dim = self.n_agents / 4
-            self.world_y_dim = self.n_agents / 4
+            self.world_x_dim = self.train_world_x_dim
+            self.world_y_dim = self.train_world_y_dim
         else:
             # Increase world size for evaluation, like removing the fence
-            self.world_x_dim = 32
-            self.world_y_dim = 32
+            self.world_x_dim = self.eval_world_x_dim
+            self.world_y_dim = self.eval_world_y_dim
 
         # Reward Shaping
         self.frechet_shaping_factor = 1.0
@@ -176,11 +180,22 @@ class SalpNavigateDomain(BaseScenario):
 
     def reset_world_at(self, env_index: int = None):
 
-        agent_scale = 0.1
-        agent_offset = 0.0
+        agent_inner_radius = 0.05
+        agent_outer_radius = 0.15
 
-        target_offset = self.n_agents * self.agent_joint_length
-        target_scale = self.n_agents * self.agent_joint_length
+        if self.training:
+            target_inner_radius = self.train_world_x_dim * (agent_outer_radius * 3)
+            target_outer_radius = (
+                target_inner_radius + self.n_agents * self.agent_joint_length
+            )
+        else:
+            target_inner_radius = (
+                self.train_world_x_dim * 1.25 * (agent_outer_radius + 0.5)
+            )
+            target_outer_radius = (
+                target_inner_radius
+                + self.n_agents * self.agent_joint_length * (64 / self.n_agents)
+            )
 
         # Rotation params
         agent_rotation_angles = [
@@ -200,20 +215,20 @@ class SalpNavigateDomain(BaseScenario):
             # Create new agent and target chains
             self.agent_chains = [
                 self.create_agent_chain(
-                    offset=agent_offset,
-                    scale=agent_scale,
-                    theta_min=0.0,
-                    theta_max=0.0,
-                    rotation_angle=agent_rotation_tensor[i],
+                    agent_inner_radius,
+                    agent_outer_radius,
+                    0.0,
+                    0.0,
+                    agent_rotation_tensor[i],
                 )
                 for i in range(self.world.batch_dim)
             ]
 
             self.target_chains = [
                 self.create_target_chain(
-                    offset=target_offset,
-                    scale=target_scale,
-                    rotation_angle=target_rotation_angle,
+                    target_inner_radius,
+                    target_outer_radius,
+                    target_rotation_angle,
                 )
                 for _ in range(self.world.batch_dim)
             ]
@@ -272,16 +287,16 @@ class SalpNavigateDomain(BaseScenario):
             self.steps[env_index] = 0
 
             self.agent_chains[env_index] = self.create_agent_chain(
-                offset=agent_offset,
-                scale=agent_scale,
-                theta_min=0.0,
-                theta_max=0.0,
-                rotation_angle=agent_rotation_tensor[env_index],
+                agent_inner_radius,
+                agent_outer_radius,
+                0.0,
+                0.0,
+                agent_rotation_tensor[env_index],
             )
             self.target_chains[env_index] = self.create_target_chain(
-                offset=target_offset,
-                scale=target_scale,
-                rotation_angle=target_rotation_angle,
+                target_inner_radius,
+                target_outer_radius,
+                target_rotation_angle,
             )
 
             for n_agent, agent in enumerate(self.world.agents):
@@ -353,13 +368,11 @@ class SalpNavigateDomain(BaseScenario):
         return out_of_bounds
 
     def create_agent_chain(
-        self, offset, scale, theta_min, theta_max, rotation_angle: float = 0.0
+        self, inner_r, outer_r, theta_min, theta_max, rotation_angle: float = 0.0
     ):
-        x_coord, y_coord = generate_random_coordinate_outside_box(
-            offset,
-            scale,
-            1.0,
-            1.0,
+        x_coord, y_coord = generate_random_coordinate_within_annulus(
+            inner_r,
+            outer_r,
         )
         chain = rotate_points(
             points=generate_target_points(
@@ -376,12 +389,10 @@ class SalpNavigateDomain(BaseScenario):
         ).to(self.device)
         return chain
 
-    def create_target_chain(self, offset, scale, rotation_angle: float = 0.0):
-        x_coord, y_coord = generate_random_coordinate_outside_box(
-            offset,
-            scale,
-            1.0,
-            1.0,
+    def create_target_chain(self, inner_r, outer_r, rotation_angle: float = 0.0):
+        x_coord, y_coord = generate_random_coordinate_within_annulus(
+            inner_r,
+            outer_r,
         )
 
         n_bends = random.choice([0, 1])
@@ -419,22 +430,24 @@ class SalpNavigateDomain(BaseScenario):
 
     def process_action(self, agent: Agent):
 
-        if self.rotating_salps:
-            magnitude = agent.action.u[:, 0]
+        # if self.rotating_salps:
+        #     magnitude = agent.action.u[:, 0]
 
-            # Set salp's rotation
-            agent.state.rot += agent.action.u[:, 1].unsqueeze(-1)
+        #     # Set salp's rotation
+        #     agent.state.rot += agent.action.u[:, 1].unsqueeze(-1)
 
-        else:
-            magnitude_pos = self.interpolate(
-                agent.action.u[:, 0], target_min=0, target_max=1
-            )
+        # else:
+        #     magnitude_pos = self.interpolate(
+        #         agent.action.u[:, 0], target_min=0, target_max=1
+        #     )
 
-            magnitude_neg = self.interpolate(
-                agent.action.u[:, 1], target_min=0, target_max=1
-            )
+        #     magnitude_neg = self.interpolate(
+        #         agent.action.u[:, 1], target_min=0, target_max=1
+        #     )
 
-            magnitude = magnitude_pos - magnitude_neg
+        #     magnitude = magnitude_pos - magnitude_neg
+
+        magnitude = torch.tanh(agent.action.u[:, 0])
 
         # Get heading vector
         agent_rot = agent.state.rot % (2 * torch.pi)
@@ -600,7 +613,7 @@ class SalpNavigateDomain(BaseScenario):
                     dim=-1,
                 ).float()
 
-            case "local":
+            case "ver_0":
 
                 observation = torch.cat(
                     [
@@ -631,10 +644,11 @@ class SalpNavigateDomain(BaseScenario):
                     dim=-1,
                 ).float()
 
-            case "reduced":
-
+            case "ver_1":
                 observation = torch.cat(
                     [
+                        # Agent id
+                        encoded_idx,
                         # Local data
                         agent.state.pos,
                         agent.state.vel,
@@ -781,9 +795,11 @@ class SalpNavigateDomain(BaseScenario):
     def info(self, agent: Agent) -> Dict[str, Tensor]:
         chain_pos = self.get_agent_chain_position()
         target_pos = self.get_target_chain_position()
+        world_dims = torch.tensor([self.world_x_dim, self.world_y_dim])
         return {
-            "target_pose": (target_pos),
-            "chain_pose": (chain_pos),
+            "target_pose": target_pos,
+            "chain_pose": chain_pos,
+            "world_dims": world_dims,
             "frechet_rew": self.raw_frech_rew,
             "distance_rew": self.raw_dist_rew,
         }
