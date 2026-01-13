@@ -715,24 +715,60 @@ def random_point_around_center(center_x, center_y, radius):
     return np.float64(random_x), np.float64(random_y)
 
 
-def generate_random_coordinate_outside_box(
-    offset: float, scale: float, x_boundary: float, y_boundary: float
+# def generate_random_coordinate_outside_box(
+#     offset: float, scale: float, x_boundary: float, y_boundary: float
+# ):
+#     x_scaled = x_boundary * scale
+#     y_scaled = y_boundary * scale
+
+#     x_coord = random.uniform(-x_scaled, x_scaled)
+
+#     y_coord = random.uniform(-y_scaled, y_scaled)
+
+#     if x_coord > 0:
+#         x_coord += offset
+#     else:
+#         x_coord -= offset
+
+#     if y_coord > 0:
+#         y_coord += offset
+#     else:
+#         y_coord -= offset
+
+#     return np.float64(x_coord), np.float64(y_coord)
+
+
+def generate_random_coordinate_within_annulus(
+    inner_radius: float,
+    outer_radius: float,
+    center_x: float = 0.0,
+    center_y: float = 0.0,
 ):
-    x_scaled = x_boundary * scale
-    y_scaled = y_boundary * scale
+    """
+    Generate a random coordinate within the area between two concentric circles (annulus).
 
-    x_coord = random.uniform(-x_scaled, x_scaled)
+    Parameters:
+        inner_radius (float): Radius of the inner circle (exclusion zone).
+        outer_radius (float): Radius of the outer circle (outer boundary).
+        center_x (float): X-coordinate of the circle center. Default is 0.0.
+        center_y (float): Y-coordinate of the circle center. Default is 0.0.
 
-    y_coord = random.uniform(-y_scaled, y_scaled)
+    Returns:
+        tuple: (x, y) coordinates as numpy float64 values.
+    """
+    if inner_radius >= outer_radius:
+        raise ValueError("inner_radius must be less than outer_radius")
 
-    if x_coord > 0:
-        x_coord += offset
-    else:
-        x_coord -= offset
+    # Generate random angle in radians
+    angle = random.uniform(0, 2 * math.pi)
 
-    if y_coord > 0:
-        y_coord += offset
-    else:
-        y_coord -= offset
+    # Generate random radius between inner and outer radius
+    # Use sqrt for uniform distribution in 2D space
+    r_squared = random.uniform(inner_radius**2, outer_radius**2)
+    radius = math.sqrt(r_squared)
+
+    # Calculate coordinates
+    x_coord = center_x + radius * math.cos(angle)
+    y_coord = center_y + radius * math.sin(angle)
 
     return np.float64(x_coord), np.float64(y_coord)

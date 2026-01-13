@@ -155,10 +155,11 @@ class PPOTrainer:
                         self.model,
                     )
                 )
+
                 actions_per_env = torch.clamp(
                     b_action,
-                    min=-1.0,
-                    max=1.0,
+                    min=-env.agents[0].u_range,
+                    max=env.agents[0].u_range,
                 )
 
                 # Permute action tensor of shape (n_envs, n_agents * action_dim) to (agents, n_env, action_dim)
