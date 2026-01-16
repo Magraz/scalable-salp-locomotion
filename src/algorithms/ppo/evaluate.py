@@ -18,6 +18,7 @@ def evaluate(
     device: str,
     trial_id: str,
     dirs: dict,
+    disable_subsets: bool = True,
 ):
 
     params = Params(**exp_config.params)
@@ -53,17 +54,30 @@ def evaluate(
     #     d_action,
     # )
 
-    get_scalability_data(
-        exp_config,
-        env_config,
-        params,
-        device,
-        dirs,
-        random_seeds[int(trial_id)],
-        env_config.n_agents,
-        d_state,
-        d_action,
-    )
+    if disable_subsets:
+        get_disabled_scalability_data(
+            exp_config,
+            env_config,
+            params,
+            device,
+            dirs,
+            random_seeds[int(trial_id)],
+            env_config.n_agents,
+            d_state,
+            d_action,
+        )
+    else:
+        get_scalability_data(
+            exp_config,
+            env_config,
+            params,
+            device,
+            dirs,
+            random_seeds[int(trial_id)],
+            env_config.n_agents,
+            d_state,
+            d_action,
+        )
 
 
 def get_scalability_data(
@@ -77,8 +91,8 @@ def get_scalability_data(
     n_agents: int,
     d_state: int,
     d_action: int,
-    n_rollouts: int = 50,
-    extra_agents: int = 64,
+    n_rollouts: int = 30,
+    extra_agents: int = 40,
 ):
     n_agents_list = list(range(4, extra_agents + 1, 4))
     data = {n_agents: {} for n_agents in n_agents_list}
@@ -188,6 +202,179 @@ def get_scalability_data(
     # Store environment
     with open(dirs["logs"] / "evaluation.dat", "wb") as f:
         dill.dump(data, f)
+
+
+def create_mask(n: int, mask_id: int, device: str):
+    """
+    Create 4 different masks of size n (must be multiple of 4)
+
+    Mask 1: Alternating 0s and 1s
+    Mask 2: Middle half zeros, outer quarters ones
+    Mask 3: First half zeros, second half ones
+    Mask 4: First half ones, second half zeros
+    """
+    assert n % 4 == 0, "n must be a multiple of 4"
+
+    match (mask_id):
+        case 0:
+            # Mask 1: Alternating 0s and 1s
+            mask = torch.tensor(
+                [i % 2 for i in range(n)], dtype=torch.float32, device=device
+            )
+
+        case 1:
+            # Mask 2: Middle half zeros (positions n//4 to 3n//4)
+            mask = torch.ones(n, dtype=torch.float32, device=device)
+            mask[n // 4 : 3 * n // 4] = 0
+
+        case 2:
+            # Mask 3: First half zeros, second half ones
+            mask = torch.zeros(n, dtype=torch.float32, device=device)
+            mask[n // 2 :] = 1
+
+        case 3:
+            # Mask 4: First half ones, second half zeros
+            mask = torch.ones(n, dtype=torch.float32, device=device)
+            mask[n // 2 :] = 0
+
+    return mask
+
+
+def get_disabled_scalability_data(
+    exp_config: Experiment,
+    env_config: EnvironmentParams,
+    params: Params,
+    device: Path,
+    dirs: dict,
+    # Parameters for scalability experiment
+    seed: int,
+    n_agents: int,
+    d_state: int,
+    d_action: int,
+    n_rollouts: int = 30,
+    extra_agents: int = 40,
+):
+    n_agents_list = list(range(4, extra_agents + 1, 4))
+    data = {n_agents: {} for n_agents in n_agents_list}
+
+    n_disabled_masks = 4
+
+    for mask_id in range(n_disabled_masks):
+
+        for i, n_agents in enumerate(n_agents_list):
+
+            # Load environment and policy
+            env = create_env(
+                dirs["batch"],
+                n_rollouts,
+                device,
+                env_config.environment,
+                seed,
+                training=True,
+                n_agents=n_agents,
+            )
+
+            learner = PPO(
+                device,
+                exp_config.model,
+                params,
+                env_config.n_agents,
+                n_agents,
+                n_rollouts,
+                d_state,
+                2,
+            )
+
+            learner.load(dirs["models"] / "best_model")
+
+            # Set policy to evaluation mode
+            learner.policy.eval()
+
+            rewards = []
+            distance_rewards = []
+            frechet_rewards = []
+            episode_count = 0
+            state = env.reset()
+            cumulative_rewards = torch.zeros(
+                n_rollouts, dtype=torch.float32, device=device
+            )
+            cum_dist_rewards = torch.zeros(
+                n_rollouts, dtype=torch.float32, device=device
+            )
+            cum_frech_rewards = torch.zeros(
+                n_rollouts, dtype=torch.float32, device=device
+            )
+
+            while episode_count < n_rollouts:
+
+                action = torch.clamp(
+                    learner.deterministic_action(
+                        process_state(
+                            state,
+                            env_config.state_representation,
+                            exp_config.model,
+                        )
+                    ),
+                    min=-1.0,
+                    max=1.0,
+                )
+
+                action_tensor = action.reshape(
+                    n_rollouts,
+                    n_agents,
+                    2,
+                ).transpose(1, 0)
+
+                # Interpolate to range [0,1]
+                action_tensor = (action_tensor + 1) / 2
+
+                # Create (n_agents, n_rollouts, 1) tensor by subtracting second from first
+                diff_tensor = (
+                    action_tensor[:, :, 0] - action_tensor[:, :, 1]
+                ).unsqueeze(-1)
+
+                # Create mask and apply to first dimension
+                action_mask = create_mask(n_agents, mask_id, device)
+                diff_tensor = diff_tensor * action_mask.view(n_agents, 1, 1)
+
+                # Turn action tensor into list of tensors with shape (n_env, action_dim)
+                action_tensor_list = torch.unbind(diff_tensor)
+
+                state, reward, done, info = env.step(action_tensor_list)
+
+                cumulative_rewards += reward[0]
+                cum_frech_rewards = info[0]["frechet_rew"]
+                cum_dist_rewards = info[0]["distance_rew"]
+
+                if torch.any(done):
+
+                    # Get done and timeout indices
+                    done_indices = torch.nonzero(done).flatten().tolist()
+
+                    # Merge indices and remove duplicates
+                    indices = list(set(done_indices))
+
+                    for idx in indices:
+                        # Log data when episode is done
+                        rewards.append(cumulative_rewards[idx].item())
+                        distance_rewards.append(cum_dist_rewards[idx].item())
+                        frechet_rewards.append(cum_frech_rewards[idx].item())
+
+                        # Reset vars, and increase counters
+                        state = env.reset_at(index=idx)
+                        cumulative_rewards[idx] = 0
+
+                        episode_count += 1
+
+            data[n_agents]["rewards"] = rewards
+            data[n_agents]["dist_rewards"] = distance_rewards
+            data[n_agents]["frech_rewards"] = frechet_rewards
+
+            print(f"Done evaluating {n_agents}")
+
+        # Store environment
+        with open(dirs["logs"] / f"disabled_evaluation_mask_{mask_id}.dat", "wb") as f:
+            dill.dump(data, f)
 
 
 def get_attention_data(

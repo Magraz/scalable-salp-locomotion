@@ -98,7 +98,7 @@ class PPOTrainer:
             "reset_count": 1,
             "last_step_count": 0,
             "last_episode_count": 0,
-            "best_reward": -1e1000,
+            "best_reward": -10e3,
         }
 
         # Checkpoint loading logic
