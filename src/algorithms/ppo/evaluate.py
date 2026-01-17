@@ -240,6 +240,38 @@ def create_mask(n: int, mask_id: int, device: str):
     return mask
 
 
+def create_random_mask(n: int, zero_percentage: float, device: str, seed: int = None):
+    """
+    Create a random mask of size n with a specified percentage of zeros.
+
+    Args:
+        n: Size of the mask
+        zero_percentage: Percentage of zeros in the mask (between 0 and 1)
+        device: Device to place the tensor on
+        seed: Optional random seed for reproducibility
+
+    Returns:
+        Tensor of size n with ones and zeros
+    """
+    if seed is not None:
+        torch.manual_seed(seed)
+
+    # Calculate number of zeros (round half up)
+    n_zeros = int(n * zero_percentage + 0.5)
+
+    # Ensure n_zeros is within valid range
+    n_zeros = max(0, min(n, n_zeros))
+
+    # Create mask with all ones
+    mask = torch.ones(n, dtype=torch.float32, device=device)
+
+    # Randomly select indices to set to zero
+    zero_indices = torch.randperm(n, device=device)[:n_zeros]
+    mask[zero_indices] = 0
+
+    return mask
+
+
 def get_disabled_scalability_data(
     exp_config: Experiment,
     env_config: EnvironmentParams,
@@ -252,12 +284,13 @@ def get_disabled_scalability_data(
     d_state: int,
     d_action: int,
     n_rollouts: int = 30,
-    extra_agents: int = 40,
+    extra_agents: int = 48,
 ):
     n_agents_list = list(range(4, extra_agents + 1, 4))
     data = {n_agents: {} for n_agents in n_agents_list}
 
     n_disabled_masks = 4
+    disabled_subset = False
 
     for mask_id in range(n_disabled_masks):
 
@@ -334,7 +367,14 @@ def get_disabled_scalability_data(
                 ).unsqueeze(-1)
 
                 # Create mask and apply to first dimension
-                action_mask = create_mask(n_agents, mask_id, device)
+                if disabled_subset:
+                    mask_name = mask_id
+                    action_mask = create_mask(n_agents, mask_id, device)
+                else:
+                    percentage = 0.20
+                    mask_name = f"{percentage * 100}per"
+                    action_mask = create_random_mask(n_agents, 0.20, device)
+
                 diff_tensor = diff_tensor * action_mask.view(n_agents, 1, 1)
 
                 # Turn action tensor into list of tensors with shape (n_env, action_dim)
@@ -373,7 +413,9 @@ def get_disabled_scalability_data(
             print(f"Done evaluating {n_agents}")
 
         # Store environment
-        with open(dirs["logs"] / f"disabled_evaluation_mask_{mask_id}.dat", "wb") as f:
+        with open(
+            dirs["logs"] / f"disabled_evaluation_mask_{mask_name}.dat", "wb"
+        ) as f:
             dill.dump(data, f)
 
 
