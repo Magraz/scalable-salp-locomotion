@@ -271,6 +271,34 @@ def create_random_mask(n: int, zero_percentage: float, device: str, seed: int = 
 
     return mask
 
+def create_random_mask_by_count(n: int, n_zeros: int, device: str, seed: int = None):
+    """
+    Create a random mask of size n with a specified number of zeros.
+
+    Args:
+        n: Size of the mask
+        n_zeros: Number of zeros in the mask
+        device: Device to place the tensor on
+        seed: Optional random seed for reproducibility
+
+    Returns:
+        Tensor of size n with ones and zeros
+    """
+    if seed is not None:
+        torch.manual_seed(seed)
+
+    # Ensure n_zeros is within valid range
+    n_zeros = max(0, min(n, n_zeros))
+
+    # Create mask with all ones
+    mask = torch.ones(n, dtype=torch.float32, device=device)
+
+    # Randomly select indices to set to zero
+    zero_indices = torch.randperm(n, device=device)[:n_zeros]
+    mask[zero_indices] = 0
+
+    return mask
+
 
 def get_disabled_scalability_data(
     exp_config: Experiment,
@@ -283,17 +311,20 @@ def get_disabled_scalability_data(
     n_agents: int,
     d_state: int,
     d_action: int,
-    n_rollouts: int = 30,
+    n_rollouts: int = 50,
     extra_agents: int = 48,
 ):
-    n_agents_list = list(range(4, extra_agents + 1, 4))
+    # n_agents_list = list(range(4, extra_agents + 1, 4))
+    n_agents_list = [n_agents]
     data = {n_agents: {} for n_agents in n_agents_list}
 
-    n_disabled_masks = 4
+    n_disabled_masks = n_agents//2 + 1
     disabled_subset = False
 
     for mask_id in range(n_disabled_masks):
 
+        data = {n_agents: {} for n_agents in n_agents_list}
+        
         for i, n_agents in enumerate(n_agents_list):
 
             # Load environment and policy
@@ -371,9 +402,8 @@ def get_disabled_scalability_data(
                     mask_name = mask_id
                     action_mask = create_mask(n_agents, mask_id, device)
                 else:
-                    percentage = 0.20
-                    mask_name = f"{percentage * 100}per"
-                    action_mask = create_random_mask(n_agents, 0.20, device)
+                    mask_name = f"{mask_id+1}n"
+                    action_mask = create_random_mask_by_count(n_agents, mask_id+1, device)
 
                 diff_tensor = diff_tensor * action_mask.view(n_agents, 1, 1)
 
