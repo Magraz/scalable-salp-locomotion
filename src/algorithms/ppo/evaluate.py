@@ -204,7 +204,7 @@ def get_scalability_data(
         dill.dump(data, f)
 
 
-def create_mask(n: int, mask_id: int, device: str):
+def create_mask(n: int, n_mask: int, device: str):
     """
     Create 4 different masks of size n (must be multiple of 4)
 
@@ -215,7 +215,7 @@ def create_mask(n: int, mask_id: int, device: str):
     """
     assert n % 4 == 0, "n must be a multiple of 4"
 
-    match (mask_id):
+    match (n_mask):
         case 0:
             # Mask 1: Alternating 0s and 1s
             mask = torch.tensor(
@@ -315,17 +315,18 @@ def get_disabled_scalability_data(
     extra_agents: int = 48,
 ):
     # n_agents_list = list(range(4, extra_agents + 1, 4))
-    n_agents_list = [n_agents]
-    data = {n_agents: {} for n_agents in n_agents_list}
-
-    n_disabled_masks = n_agents//2 + 1
+    # n_agents_list = [int(n_agents * 1.5)]
+    n_agents_list = list(range(4, int(n_agents * 2.5), int(n_agents * 0.5)))
+    
     disabled_subset = False
 
-    for mask_id in range(n_disabled_masks):
-
-        data = {n_agents: {} for n_agents in n_agents_list}
+    data = {n_agents: {} for n_agents in n_agents_list}
         
-        for i, n_agents in enumerate(n_agents_list):
+    for i, n_agents in enumerate(n_agents_list):
+        
+        n_disabled_masks = n_agents//2
+
+        for n_mask in range(n_disabled_masks):
 
             # Load environment and policy
             env = create_env(
@@ -399,11 +400,11 @@ def get_disabled_scalability_data(
 
                 # Create mask and apply to first dimension
                 if disabled_subset:
-                    mask_name = mask_id
-                    action_mask = create_mask(n_agents, mask_id, device)
+                    mask_name = n_mask
+                    action_mask = create_mask(n_agents, n_mask, device)
                 else:
-                    mask_name = f"{mask_id+1}n"
-                    action_mask = create_random_mask_by_count(n_agents, mask_id+1, device)
+                    mask_name = f"{n_mask+1}"
+                    action_mask = create_random_mask_by_count(n_agents, n_mask+1, device)
 
                 diff_tensor = diff_tensor * action_mask.view(n_agents, 1, 1)
 
@@ -436,17 +437,17 @@ def get_disabled_scalability_data(
 
                         episode_count += 1
 
-            data[n_agents]["rewards"] = rewards
-            data[n_agents]["dist_rewards"] = distance_rewards
-            data[n_agents]["frech_rewards"] = frechet_rewards
+            data[n_agents].setdefault(n_mask+1, {})["rewards"] = rewards
+            data[n_agents].setdefault(n_mask+1, {})["dist_rewards"] = distance_rewards
+            data[n_agents].setdefault(n_mask+1, {})["frech_rewards"] = frechet_rewards
 
-            print(f"Done evaluating {n_agents}")
+            print(f"Done evaluating {n_agents} agents, mask {mask_name}")
 
-        # Store environment
-        with open(
-            dirs["logs"] / f"disabled_evaluation_mask_{mask_name}.dat", "wb"
-        ) as f:
-            dill.dump(data, f)
+    # Store environment
+    with open(
+        dirs["logs"] / f"disabled_mask_eval.dat", "wb"
+    ) as f:
+        dill.dump(data, f)
 
 
 def get_attention_data(
