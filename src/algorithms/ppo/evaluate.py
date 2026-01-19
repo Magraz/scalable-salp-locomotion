@@ -311,12 +311,12 @@ def get_disabled_scalability_data(
     n_agents: int,
     d_state: int,
     d_action: int,
-    n_rollouts: int = 50,
+    n_rollouts: int = 25,
     extra_agents: int = 48,
 ):
     # n_agents_list = list(range(4, extra_agents + 1, 4))
     # n_agents_list = [int(n_agents * 1.5)]
-    n_agents_list = list(range(4, int(n_agents * 2.5), int(n_agents * 0.5)))
+    n_agents_list = list(range(n_agents//2, int(n_agents * 2.5), int(n_agents * 0.5)))
     
     disabled_subset = False
 
@@ -443,11 +443,11 @@ def get_disabled_scalability_data(
 
             print(f"Done evaluating {n_agents} agents, mask {mask_name}")
 
-    # Store environment
-    with open(
-        dirs["logs"] / f"disabled_mask_eval.dat", "wb"
-    ) as f:
-        dill.dump(data, f)
+        # Store environment
+        with open(
+            dirs["logs"] / f"disabled_mask_eval.dat", "wb"
+        ) as f:
+            dill.dump(data, f)
 
 
 def get_attention_data(
