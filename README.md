@@ -37,7 +37,7 @@ Figure 3
 - `parallel bash run_trial.sh salp_navigate_8a ppo salp_navigate test_id ::: $(seq 0 4) ::: mlp gcn gat graph_transformer gcn_full gat_full graph_transformer_full`
 - `parallel bash run_trial.sh salp_navigate_16a ppo salp_navigate test_id ::: $(seq 0 4) ::: mlp gcn gat graph_transformer gcn_full gat_full graph_transformer_full`
 
-Figure 4
+Figure 4 and 5
 - `parallel bash evaluate.sh salp_navigate_8a ppo salp_navigate test_id ::: gcn gat graph_transformer gcn_full gat_full graph_transformer_full`
 - `parallel bash evaluate.sh salp_navigate_16a ppo salp_navigate test_id ::: gcn gat graph_transformer gcn_full gat_full graph_transformer_full`
 
