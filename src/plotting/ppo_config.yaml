@@ -1,13 +1,16 @@
 #Experiment config
-moving_avg_window_size: 1
-datapoints: [50000, 30000]
-base_path: "/home/magraz/research/src/learning/experiments/results"
+moving_avg_window_size: 200
+datapoints: [30000, 30000]
+base_path: "/home/magraz/scalable-salp-locomotion/src/experiments/results"
 
-# batches: ["salp_navigate_8a", "salp_navigate_16a"]
-batches: ["salp_passage_3a"]
+batches: ["salp_navigate_8a", "salp_navigate_16a"]
+# batches: ["salp_navigate_8a_hpc", "salp_navigate_16a"]
+# batches: ["salp_navigate_8a_ver_0", "salp_navigate_8a_ver_1"]
+# batches: ["salp_navigate_8a_state_test", "salp_navigate_16a"]
+# batches: ["salp_navigate_8a_ver_1"]
 
+experiments: ["mlp", "gcn", "gat", "graph_transformer", "gcn_full", "gat_full", "graph_transformer_full"]
 # experiments: ["gcn", "gat", "graph_transformer", "gcn_full", "gat_full", "graph_transformer_full"]
-experiments: ["mlp"]
 
-# trials: ["0", "1", "2", "3", "4"]
-trials: ["0"]
+trials: ["0", "1", "2", "3", "4"]
+# trials: ["0"]
